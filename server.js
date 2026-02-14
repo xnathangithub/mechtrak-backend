@@ -239,15 +239,39 @@ app.post('/api/auth/login', authLimiter,async (req, res) => {
 // Store current user token for plugin
 let currentUserToken = null;
 
+// Add column to users table to store plugin token
+// Run this in Supabase SQL editor:
+// ALTER TABLE users ADD COLUMN IF NOT EXISTS plugin_token TEXT;
+
 app.post('/api/plugin/register-token', async (req, res) => {
   const userId = getUserIdFromToken(req);
   if (!userId) return res.status(401).json({ success: false });
-  currentUserToken = req.headers.authorization?.split(' ')[1];
+  
+  const token = req.headers.authorization?.split(' ')[1];
+  
+  await pool.query(
+    'UPDATE users SET plugin_token = $1 WHERE id = $2',
+    [token, userId]
+  );
+  
   res.json({ success: true });
 });
 
 app.get('/api/plugin/token', async (req, res) => {
-  res.json({ success: true, token: currentUserToken });
+  try {
+    // Get most recently active user's token
+    const result = await pool.query(
+      'SELECT plugin_token FROM users WHERE plugin_token IS NOT NULL ORDER BY last_login DESC LIMIT 1'
+    );
+    
+    if (result.rows.length === 0 || !result.rows[0].plugin_token) {
+      return res.json({ success: true, token: null });
+    }
+    
+    res.json({ success: true, token: result.rows[0].plugin_token });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Verify token
