@@ -65,7 +65,12 @@ pool.query('SELECT NOW()', (err, res) => {
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['https://mechtrak-frontend.vercel.app/', 'http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));;
 app.use(express.json());
 
 // Auth middleware
