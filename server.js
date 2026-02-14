@@ -236,6 +236,20 @@ app.post('/api/auth/login', authLimiter,async (req, res) => {
   }
 });
 
+// Store current user token for plugin
+let currentUserToken = null;
+
+app.post('/api/plugin/register-token', async (req, res) => {
+  const userId = getUserIdFromToken(req);
+  if (!userId) return res.status(401).json({ success: false });
+  currentUserToken = req.headers.authorization?.split(' ')[1];
+  res.json({ success: true });
+});
+
+app.get('/api/plugin/token', async (req, res) => {
+  res.json({ success: true, token: currentUserToken });
+});
+
 // Verify token
 app.get('/api/auth/verify', verifyLimiter, async (req, res) => {
   try {
