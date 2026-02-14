@@ -1,0 +1,16 @@
+# Environment variables - NEVER upload this
+.env
+
+# Node modules
+node_modules/
+
+# Build files
+build/
+dist/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
