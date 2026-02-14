@@ -250,7 +250,7 @@ app.post('/api/plugin/register-token', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   
   await pool.query(
-    'UPDATE users SET plugin_token = $1 WHERE id = $2',
+    'UPDATE users SET plugin_token = $1, last_login = NOW() WHERE id = $2',
     [token, userId]
   );
   
