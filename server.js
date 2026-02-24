@@ -41,7 +41,6 @@ const apiLimiter = rateLimit({
   }
 });
 
-
 // Apply general limit to all routes
 app.use('/api/', apiLimiter);
 
@@ -107,7 +106,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'Server is running!', database: 'connected' });
 });
 
-// Store last heartbeat time per user (in memory for now)
+// Store last heartbeat time per user (in memory)
 const pluginHeartbeats = {};
 
 // Plugin heartbeat - called by plugin every 30 seconds
@@ -115,8 +114,10 @@ app.post('/api/heartbeat', async (req, res) => {
   try {
     const { session_id } = req.body;
     const userId = getUserIdFromToken(req);
-    const key = userId || session_id || 'anonymous';
+    // FIX: always convert userId to string so it matches the check endpoint
+    const key = userId ? userId.toString() : (session_id || 'anonymous');
     pluginHeartbeats[key] = Date.now();
+    console.log(`💓 Heartbeat received from key: ${key}`);
     res.json({ success: true, message: 'Heartbeat received' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -193,7 +194,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', authLimiter,async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -264,7 +265,6 @@ app.post('/api/plugin/register-token', async (req, res) => {
 
 app.get('/api/plugin/token', async (req, res) => {
   try {
-    // Get most recently active user's token
     const result = await pool.query(
       'SELECT plugin_token FROM users WHERE plugin_token IS NOT NULL ORDER BY last_login DESC LIMIT 1'
     );
@@ -312,7 +312,6 @@ app.post('/api/sessions', async (req, res) => {
     const sessionData = req.body;
     let userId = getUserIdFromToken(req);
     
-    // If no token, try to find user_id from existing session record
     if (!userId) {
       const existingSession = await pool.query(
         'SELECT user_id FROM sessions WHERE session_id = $1',
@@ -400,13 +399,12 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 // Create new session from plan
-// Create new session from plan
 app.post('/api/sessions/start', async (req, res) => {
   try {
     const { plan_id } = req.body;
     const userId = getUserIdFromToken(req);
 
-    // DELETE EMPTY SESSIONS for this user
+    // Delete empty sessions for this user
     if (userId) {
       await pool.query(
         "DELETE FROM sessions WHERE total_attempts = 0 AND user_id = $1",
@@ -417,7 +415,7 @@ app.post('/api/sessions/start', async (req, res) => {
     }
     console.log('🗑️ Deleted empty sessions');
 
-    // MARK ALL EXISTING ACTIVE SESSIONS AS COMPLETED for this user
+    // Mark all existing active sessions as completed for this user
     if (userId) {
       await pool.query(
         "UPDATE sessions SET status = 'completed' WHERE status = 'active' AND user_id = $1",
@@ -428,7 +426,6 @@ app.post('/api/sessions/start', async (req, res) => {
     }
     console.log('✅ Marked all previous sessions as completed');
 
-    // GET PLAN FIRST before using plan.name
     const planResult = await pool.query(
       'SELECT * FROM training_plans WHERE id = $1',
       [plan_id]
@@ -440,7 +437,6 @@ app.post('/api/sessions/start', async (req, res) => {
     
     const plan = planResult.rows[0];
 
-    // NOW we can use plan.name to generate session name
     const sessionDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const existingNames = await pool.query(
       "SELECT name FROM sessions WHERE name LIKE $1",
