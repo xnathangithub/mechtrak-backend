@@ -110,8 +110,22 @@ const pluginHeartbeats = {};
 app.post('/api/heartbeat', async (req, res) => {
   try {
     const { session_id } = req.body;
-    const userId = getUserIdFromToken(req);
-    const key = userId ? userId.toString() : (session_id || 'anonymous');
+    // Try JWT first
+    let userId = getUserIdFromToken(req);
+    // Fall back: look up user by plugin_token (the token the plugin uses)
+    if (!userId) {
+      const pluginToken = req.headers.authorization?.split(' ')[1];
+      if (pluginToken) {
+        const result = await pool.query('SELECT id FROM users WHERE plugin_token = $1', [pluginToken]);
+        if (result.rows.length > 0) userId = result.rows[0].id;
+      }
+    }
+    // Fall back: look up user by session_id ownership
+    if (!userId && session_id) {
+      const result = await pool.query('SELECT user_id FROM sessions WHERE session_id = $1', [session_id]);
+      if (result.rows.length > 0) userId = result.rows[0].user_id;
+    }
+    const key = userId ? userId.toString() : 'anonymous';
     pluginHeartbeats[key] = Date.now();
     console.log(`💓 Heartbeat received from key: ${key}`);
     res.json({ success: true, message: 'Heartbeat received' });
@@ -126,11 +140,8 @@ app.get('/api/heartbeat/check', async (req, res) => {
     console.log('Heartbeats stored:', pluginHeartbeats);
     console.log('Looking for userId:', userId);
     const userKey = userId ? userId.toString() : null;
-    const lastHeartbeat =
-      (userKey && pluginHeartbeats[userKey]) ||
-      pluginHeartbeats['anonymous'] ||
-      Object.values(pluginHeartbeats).sort((a, b) => b - a)[0];
-    console.log('Last heartbeat found:', lastHeartbeat);
+    // Only check this user's heartbeat — never fall back to other users
+    const lastHeartbeat = userKey ? pluginHeartbeats[userKey] : null;
     if (!lastHeartbeat) return res.json({ success: true, connected: false });
     const secondsSinceHeartbeat = (Date.now() - lastHeartbeat) / 1000;
     const connected = secondsSinceHeartbeat < 60;
@@ -413,6 +424,70 @@ app.delete('/api/plans/:id', async (req, res) => {
     res.json({ success: true, message: 'Plan deleted' });
   } catch (error) {
     console.error('Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// In-memory store for pending plugin commands (keyed by user token)
+const pendingCommands = {};
+
+// Dashboard calls this to queue a load-pack command
+app.post('/api/plugin/load-pack', async (req, res) => {
+  try {
+    const { packCode } = req.body;
+    if (!packCode || typeof packCode !== 'string') {
+      return res.status(400).json({ success: false, error: 'packCode required' });
+    }
+    // Identify user — try JWT first, fall back to plugin token
+    let userKey = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+        userKey = 'user_' + decoded.userId;
+      } catch {}
+    }
+    if (!userKey) userKey = 'anonymous';
+
+    pendingCommands[userKey] = { type: 'load_pack', packCode: packCode.trim(), queuedAt: Date.now() };
+    console.log(`📦 Load pack queued for ${userKey}: ${packCode}`);
+    res.json({ success: true, message: 'Command queued' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Plugin polls this to get its next command
+app.get('/api/plugin/commands', async (req, res) => {
+  try {
+    // Auth via plugin token (Bearer header)
+    const authHeader = req.headers['authorization'];
+    let userKey = 'anonymous';
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7);
+      try {
+        // Try JWT
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userKey = 'user_' + decoded.userId;
+      } catch {
+        // Try plugin token lookup
+        const result = await pool.query('SELECT id FROM users WHERE plugin_token = $1', [token]);
+        if (result.rows.length > 0) userKey = 'user_' + result.rows[0].id;
+      }
+    }
+
+    const cmd = pendingCommands[userKey] || pendingCommands['anonymous'] || null;
+
+    if (cmd) {
+      // Clear it — one-shot delivery
+      delete pendingCommands[userKey];
+      delete pendingCommands['anonymous'];
+      console.log(`📤 Delivering command to plugin (${userKey}):`, cmd);
+      return res.json({ success: true, command: cmd });
+    }
+
+    res.json({ success: true, command: null });
+  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
