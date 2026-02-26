@@ -26,6 +26,7 @@ const getUserIdFromJwt = (req) => {
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  validate: { xForwardedForHeader: false },
   message: { success: false, error: 'Too many login attempts, please try again in 15 minutes' },
   handler: (req, res, next, options) => {
     console.log(`⚠️ Auth rate limit hit on ${req.path} from ${req.ip}`);
@@ -37,10 +38,13 @@ const authLimiter = rateLimit({
 const userLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 550,
-  keyGenerator: (req) => {
+  keyGenerator: (req, res) => {
     const userId = getUserIdFromJwt(req);
-    return userId || req.ip;
+    if (userId) return userId;
+    // Use ipKeyGenerator helper to handle IPv6 properly
+    return req.ip || 'unknown';
   },
+  validate: { xForwardedForHeader: false },
   message: { success: false, error: 'Too many requests, slow down!' },
   handler: (req, res, next, options) => {
     const userId = getUserIdFromJwt(req);
