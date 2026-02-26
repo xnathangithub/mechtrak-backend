@@ -230,10 +230,19 @@ app.post(’/api/sessions’, async (req, res) => {
 try {
 const sessionData = req.body;
 let userId = getUserIdFromToken(req);
+// Fall back: resolve userId from plugin_token for plugin uploads
+if (!userId) {
+const pluginToken = req.headers.authorization?.split(’ ’)[1];
+if (pluginToken) {
+const tokenRes = await pool.query(‘SELECT id FROM users WHERE plugin_token = $1’, [pluginToken]);
+if (tokenRes.rows.length > 0) userId = tokenRes.rows[0].id;
+}
+}
 if (!userId) {
 const existingSession = await pool.query(‘SELECT user_id FROM sessions WHERE session_id = $1’, [sessionData.sessionId]);
 if (existingSession.rows.length > 0 && existingSession.rows[0].user_id) userId = existingSession.rows[0].user_id;
 }
+if (!userId) return res.status(401).json({ success: false, error: ‘Unauthorized’ });
 console.log(‘📥 Received session:’, sessionData.sessionId, ‘userId:’, userId);
 const query = `INSERT INTO sessions (session_id, status, start_time, last_updated, duration_minutes, total_attempts, total_goals, total_accuracy, total_shots, shots_data, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (session_id) DO UPDATE SET status = $2, last_updated = $4, duration_minutes = $5, total_attempts = $6, total_goals = $7, total_accuracy = $8, total_shots = $9, shots_data = $10, user_id = COALESCE(sessions.user_id, $11) RETURNING *;`;
 const values = [sessionData.sessionId, sessionData.status, sessionData.startTime, sessionData.lastUpdated, sessionData.durationMinutes, sessionData.totalAttempts, sessionData.totalGoals, sessionData.totalAccuracy, sessionData.totalShots, JSON.stringify(sessionData.shots), userId];
@@ -263,17 +272,10 @@ app.post(’/api/sessions/start’, async (req, res) => {
 try {
 const { plan_id } = req.body;
 const userId = getUserIdFromToken(req);
-if (userId) {
+if (!userId) return res.status(401).json({ success: false, error: ‘Unauthorized’ });
 await pool.query(“DELETE FROM sessions WHERE total_attempts = 0 AND user_id = $1”, [userId]);
-} else {
-await pool.query(“DELETE FROM sessions WHERE total_attempts = 0”);
-}
 console.log(‘🗑️ Deleted empty sessions’);
-if (userId) {
 await pool.query(“UPDATE sessions SET status = ‘completed’ WHERE status = ‘active’ AND user_id = $1”, [userId]);
-} else {
-await pool.query(“UPDATE sessions SET status = ‘completed’ WHERE status = ‘active’”);
-}
 console.log(‘✅ Marked all previous sessions as completed’);
 const planResult = await pool.query(‘SELECT * FROM training_plans WHERE id = $1’, [plan_id]);
 if (planResult.rows.length === 0) return res.status(404).json({ success: false, error: ‘Plan not found’ });
@@ -341,12 +343,8 @@ res.status(500).json({ success: false, error: error.message });
 app.get(’/api/plans’, async (req, res) => {
 try {
 const userId = getUserIdFromToken(req);
-let result;
-if (userId) {
-result = await pool.query(‘SELECT * FROM training_plans WHERE is_preset = true OR user_id = $1 ORDER BY is_preset DESC, name ASC’, [userId]);
-} else {
-result = await pool.query(‘SELECT * FROM training_plans ORDER BY is_preset DESC, name ASC’);
-}
+if (!userId) return res.status(401).json({ success: false, error: ‘Unauthorized’ });
+const result = await pool.query(‘SELECT * FROM training_plans WHERE is_preset = true OR user_id = $1 ORDER BY is_preset DESC, name ASC’, [userId]);
 res.json({ success: true, plans: result.rows });
 } catch (error) {
 console.error(‘Error:’, error);
@@ -358,6 +356,7 @@ app.post(’/api/plans’, async (req, res) => {
 try {
 const { name, description, shot_names } = req.body;
 const userId = getUserIdFromToken(req);
+if (!userId) return res.status(401).json({ success: false, error: ‘Unauthorized’ });
 const query = `INSERT INTO training_plans (name, description, is_preset, shot_names, user_id) VALUES ($1, $2, false, $3, $4) RETURNING *;`;
 const result = await pool.query(query, [name, description, shot_names, userId]);
 console.log(‘✅ Plan created:’, name);
@@ -370,7 +369,9 @@ res.status(500).json({ success: false, error: error.message });
 
 app.get(’/api/plans/:id’, async (req, res) => {
 try {
-const result = await pool.query(‘SELECT * FROM training_plans WHERE id = $1’, [req.params.id]);
+const userId = getUserIdFromToken(req);
+if (!userId) return res.status(401).json({ success: false, error: ‘Unauthorized’ });
+const result = await pool.query(‘SELECT * FROM training_plans WHERE id = $1 AND (is_preset = true OR user_id = $2)’, [req.params.id, userId]);
 if (result.rows.length === 0) return res.status(404).json({ success: false, error: ‘Plan not found’ });
 res.json({ success: true, plan: result.rows[0] });
 } catch (error) {
@@ -434,7 +435,7 @@ let userKey = null;
 const authHeader = req.headers[‘authorization’];
 if (authHeader?.startsWith(’Bearer ’)) {
 try {
-const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+const decoded = jwt.verify(authHeader.slice(7), process.env.JWT_SECRET);
 userKey = ‘user_’ + decoded.userId;
 } catch {}
 }
@@ -461,7 +462,7 @@ if (authHeader?.startsWith(’Bearer ’)) {
 const token = authHeader.slice(7);
 try {
 // Try JWT
-const decoded = jwt.verify(token, JWT_SECRET);
+const decoded = jwt.verify(token, process.env.JWT_SECRET);
 userKey = ‘user_’ + decoded.userId;
 } catch {
 // Try plugin token lookup
