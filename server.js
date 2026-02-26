@@ -204,7 +204,7 @@ app.post('/api/plugin/register-token', async (req, res) => {
 app.get('/api/plugin/token', async (req, res) => {
   try {
     const userId = getUserIdFromToken(req);
-    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!userId) return res.json({ success: true, token: null });
     const result = await pool.query('SELECT plugin_token FROM users WHERE id = $1', [userId]);
     if (result.rows.length === 0 || !result.rows[0].plugin_token) return res.json({ success: true, token: null });
     res.json({ success: true, token: result.rows[0].plugin_token });
