@@ -127,7 +127,8 @@ app.post('/api/heartbeat', async (req, res) => {
     }
     const key = userId ? userId.toString() : 'anonymous';
     pluginHeartbeats[key] = Date.now();
-    console.log(`💓 Heartbeat received from key: ${key}`);
+    console.log(`💓 Heartbeat received from key: ${key}, userId: ${userId}, session_id: ${session_id}, auth: ${req.headers.authorization?.substring(0,20)}...`);
+    console.log(`💓 All stored heartbeat keys: ${Object.keys(pluginHeartbeats).join(', ')}`);
     res.json({ success: true, message: 'Heartbeat received' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -140,8 +141,10 @@ app.get('/api/heartbeat/check', async (req, res) => {
     console.log('Heartbeats stored:', pluginHeartbeats);
     console.log('Looking for userId:', userId);
     const userKey = userId ? userId.toString() : null;
+    console.log(`🔍 Heartbeat check — userId: ${userId}, userKey: ${userKey}, stored keys: ${Object.keys(pluginHeartbeats).join(', ')}`);
     // Only check this user's heartbeat — never fall back to other users
     const lastHeartbeat = userKey ? pluginHeartbeats[userKey] : null;
+    console.log(`🔍 lastHeartbeat for key ${userKey}: ${lastHeartbeat}`);
     if (!lastHeartbeat) return res.json({ success: true, connected: false });
     const secondsSinceHeartbeat = (Date.now() - lastHeartbeat) / 1000;
     const connected = secondsSinceHeartbeat < 60;
