@@ -288,7 +288,7 @@ app.post('/api/sessions/start', async (req, res) => {
     if (planResult.rows.length === 0) return res.status(404).json({ success: false, error: 'Plan not found' });
     const plan = planResult.rows[0];
     const sessionDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const existingNames = await pool.query("SELECT name FROM sessions WHERE name LIKE $1", [`${plan.name} - ${sessionDate}%`]);
+    const existingNames = await pool.query("SELECT name FROM sessions WHERE name LIKE $1 AND user_id = $2", [`${plan.name} - ${sessionDate}%`, userId]);
     let sessionName = `${plan.name} - ${sessionDate}`;
     if (existingNames.rows.length > 0) sessionName = `${plan.name} - ${sessionDate} (${existingNames.rows.length + 1})`;
     const sessionId = `session_${Date.now()}`;
