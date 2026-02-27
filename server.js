@@ -75,7 +75,7 @@ pool.query('SELECT NOW()', (err, res) => {
 });
 
 app.use(cors({
-  origin: ['https://mechtrak-frontend.vercel.app', 'https://mechtrak-frontend-nathans-projects-6dc285d5.vercel.app', 'http://localhost:3000'],
+  origin: ['https://mechtrak.xyz', 'https://www.mechtrak.xyz', 'https://mechtrak-frontend.vercel.app', 'https://mechtrak-frontend-nathans-projects-6dc285d5.vercel.app', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
