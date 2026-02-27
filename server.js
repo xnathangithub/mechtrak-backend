@@ -164,7 +164,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [email, passwordHash, username]
     );
     const user = result.rows[0];
-    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '365d' });
     console.log('✅ User registered:', user.email);
     res.json({ success: true, token, user });
   } catch (error) {
@@ -182,7 +182,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(401).json({ success: false, error: 'Invalid email or password' });
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
-    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '365d' });
     console.log('✅ User logged in:', user.email);
     res.json({ success: true, token, user: { id: user.id, email: user.email, username: user.username } });
   } catch (error) {
